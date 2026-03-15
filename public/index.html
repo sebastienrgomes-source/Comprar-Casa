@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-PT">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Comparador de Casas Portugal</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <div class="header-row">
+          <div>
+            <h1>Comparador de Casas</h1>
+            <p>Pesquisa em vários sites ao mesmo tempo para comprar ou arrendar.</p>
+          </div>
+          <button id="bellBtn" class="bell-btn" title="Novos anúncios" aria-label="Notificações">
+            🔔
+            <span id="bellBadge" class="bell-badge hidden">0</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Formulário de pesquisa -->
+      <section class="panel">
+        <form id="searchForm">
+          <div class="form-grid">
+            <label>
+              Zonas (separadas por vírgula)
+              <input type="text" name="zones" placeholder="Ex: Lisboa, Porto, Braga" autocomplete="off" />
+            </label>
+            <label>
+              Quartos mínimos
+              <input type="number" name="minRooms" value="1" min="0" />
+            </label>
+            <label>
+              Preço máximo
+              <input type="number" name="maxPrice" min="1" placeholder="Ex: 300000 ou 1200" />
+            </label>
+            <label>
+              Tipo
+              <select name="listingType">
+                <option value="both">Comprar + Arrendar</option>
+                <option value="buy">Comprar</option>
+                <option value="rent">Arrendar</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button type="submit" id="searchBtn">Procurar casas</button>
+            <button type="button" id="saveAlertBtn" class="btn-secondary">🔔 Guardar Alerta</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="status" class="status">Preenche os filtros e clica em "Procurar casas".</section>
+      <section id="results" class="results"></section>
+
+      <!-- Painel de alertas -->
+      <section class="panel alerts-panel" id="alertsPanel">
+        <div class="alerts-header">
+          <h2>Os meus alertas</h2>
+          <span class="muted" id="alertsEmpty">Ainda não tens alertas guardados.</span>
+        </div>
+        <ul id="alertsList" class="alerts-list"></ul>
+      </section>
+
+      <!-- Painel de novos anúncios -->
+      <section class="panel new-listings-panel hidden" id="newListingsPanel">
+        <div class="alerts-header">
+          <h2>Novos anúncios <span id="newCount" class="badge">0</span></h2>
+          <button class="btn-text" id="clearNewBtn">Marcar como lidos</button>
+        </div>
+        <ul id="newListingsList" class="alerts-list"></ul>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
