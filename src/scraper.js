@@ -134,8 +134,10 @@ export async function interceptJsonAndHtml(url, { waitMs = 5000 } = {}) {
 // ── Price parsing ─────────────────────────────────────────────────────────────
 export function parsePrice(text) {
   if (!text) return 0;
-  const cleaned = String(text)
-    .replace(/[€$\s\u00a0]/g, "")
+  // Take only the first price segment (split on € to avoid "997.500 € 1.065.000 €" → 9975001065000)
+  const firstSegment = String(text).split("€")[0].split("\n")[0].trim();
+  const cleaned = firstSegment
+    .replace(/[$\s\u00a0]/g, "")
     .replace(/\/.*$/, "")
     .replace(/\./g, "")
     .replace(",", ".");
