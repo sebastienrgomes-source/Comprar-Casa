@@ -3,42 +3,70 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Comparador de Casas Portugal</title>
+    <meta name="description" content="Pesquisa casas em Idealista, Imovirtual, Casa Sapo, REMAX e mais — tudo de uma vez. Encontra a tua casa ideal em Portugal." />
+    <title>CasaSearch · Comparador de Imóveis Portugal</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%232563eb'><path d='M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z'/><path fill='white' d='M9 21V12h6v9'/></svg>" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="container">
-      <header>
-        <div class="header-row">
-          <div>
-            <h1>Comparador de Casas</h1>
-            <p>Pesquisa em vários sites ao mesmo tempo para comprar ou arrendar.</p>
-          </div>
-          <button id="bellBtn" class="bell-btn" title="Novos anúncios" aria-label="Notificações">
-            🔔
-            <span id="bellBadge" class="bell-badge hidden">0</span>
+
+    <!-- ══ Cabeçalho ══════════════════════════════════════════════════════════ -->
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="logo" href="/" aria-label="CasaSearch — página inicial">
+          <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 9.5L12 3l9 6.5V20a1 1 0 01-1 1H4a1 1 0 01-1-1V9.5z"/>
+            <path d="M9 21V12h6v9"/>
+          </svg>
+          <span class="logo-text">Casa<em>Search</em></span>
+        </a>
+        <div class="header-actions">
+          <button id="bellBtn" class="icon-btn" title="Ver novos anúncios" aria-label="Notificações de novos anúncios">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 01-3.46 0"/>
+            </svg>
+            <span id="bellBadge" class="bell-badge hidden" aria-live="polite">0</span>
           </button>
         </div>
-      </header>
+      </div>
+    </header>
 
-      <!-- Formulário de pesquisa -->
-      <section class="panel">
-        <form id="searchForm">
+    <main class="container">
+
+      <!-- ══ Hero ══════════════════════════════════════════════════════════════ -->
+      <section class="hero" aria-labelledby="heroTitle">
+        <h1 id="heroTitle">Encontra a tua casa ideal</h1>
+        <p>Pesquisa em Idealista, Imovirtual, Casa Sapo, REMAX e mais — tudo de uma vez.</p>
+      </section>
+
+      <!-- ══ Formulário de pesquisa ══════════════════════════════════════════ -->
+      <section class="panel" aria-label="Filtros de pesquisa">
+        <form id="searchForm" novalidate>
           <div class="form-grid">
             <label>
-              Zonas (separadas por vírgula)
-              <input type="text" name="zones" placeholder="Ex: Lisboa, Porto, Braga" autocomplete="off" />
+              Zona ou cidade
+              <input
+                type="text"
+                name="zones"
+                placeholder="Ex: Lisboa, Porto, Braga"
+                autocomplete="off"
+                spellcheck="false"
+              />
             </label>
             <label>
               Quartos mínimos
-              <input type="number" name="minRooms" value="1" min="0" />
+              <input type="number" name="minRooms" value="1" min="0" max="20" />
             </label>
             <label>
-              Preço máximo
+              Preço máximo (€)
               <input type="number" name="maxPrice" min="1" placeholder="Ex: 300000 ou 1200" />
             </label>
             <label>
-              Tipo
+              Tipo de negócio
               <select name="listingType">
                 <option value="both">Comprar + Arrendar</option>
                 <option value="buy">Comprar</option>
@@ -47,33 +75,95 @@
             </label>
           </div>
           <div class="form-actions">
-            <button type="submit" id="searchBtn">Procurar casas</button>
-            <button type="button" id="saveAlertBtn" class="btn-secondary">🔔 Guardar Alerta</button>
+            <button type="submit" id="searchBtn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="M21 21l-4.35-4.35"/>
+              </svg>
+              Procurar casas
+            </button>
+            <button type="button" id="saveAlertBtn" class="btn-secondary">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 01-3.46 0"/>
+              </svg>
+              Guardar Alerta
+            </button>
           </div>
         </form>
       </section>
 
-      <section id="status" class="status">Preenche os filtros e clica em "Procurar casas".</section>
-      <section id="results" class="results"></section>
+      <!-- ══ Barra de estado ════════════════════════════════════════════════ -->
+      <div id="statusBar" class="status-bar hidden" role="status" aria-live="polite"></div>
 
-      <!-- Painel de alertas -->
-      <section class="panel alerts-panel" id="alertsPanel">
+      <!-- ══ Barra de ordenação ══════════════════════════════════════════════ -->
+      <div id="sortBar" class="sort-bar hidden">
+        <span class="results-count" id="resultsCount"></span>
+        <div class="sort-controls">
+          <label>
+            Ordenar:
+            <select id="sortSelect">
+              <option value="price-asc">Preço mais baixo</option>
+              <option value="price-desc">Preço mais alto</option>
+              <option value="rooms-desc">Mais quartos</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <!-- ══ Skeletons (loading) ═══════════════════════════════════════════ -->
+      <div id="skeletons" class="results hidden" aria-hidden="true"></div>
+
+      <!-- ══ Resultados ════════════════════════════════════════════════════ -->
+      <section id="results" class="results" aria-label="Resultados da pesquisa" aria-live="polite"></section>
+
+      <!-- ══ Os meus alertas ════════════════════════════════════════════════ -->
+      <section class="panel" id="alertsPanel" aria-labelledby="alertsTitle">
         <div class="alerts-header">
-          <h2>Os meus alertas</h2>
-          <span class="muted" id="alertsEmpty">Ainda não tens alertas guardados.</span>
+          <h2 id="alertsTitle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 01-3.46 0"/>
+            </svg>
+            Os meus alertas
+          </h2>
+          <span class="muted" id="alertsEmpty" style="font-size:.85rem">Ainda não tens alertas guardados.</span>
         </div>
         <ul id="alertsList" class="alerts-list"></ul>
       </section>
 
-      <!-- Painel de novos anúncios -->
-      <section class="panel new-listings-panel hidden" id="newListingsPanel">
+      <!-- ══ Novos anúncios ════════════════════════════════════════════════ -->
+      <section class="panel hidden" id="newListingsPanel" aria-labelledby="newListingsTitle">
         <div class="alerts-header">
-          <h2>Novos anúncios <span id="newCount" class="badge">0</span></h2>
+          <h2 id="newListingsTitle">
+            Novos anúncios
+            <span id="newCount" class="badge">0</span>
+          </h2>
           <button class="btn-text" id="clearNewBtn">Marcar como lidos</button>
         </div>
         <ul id="newListingsList" class="alerts-list"></ul>
       </section>
+
     </main>
+
+    <!-- ══ Modal: nome do alerta ══════════════════════════════════════════════ -->
+    <div id="alertModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal">
+        <h2 id="modalTitle">Guardar alerta</h2>
+        <p>Dá um nome a este alerta para o identificares facilmente.</p>
+        <input
+          type="text"
+          id="alertLabelInput"
+          placeholder="Ex: T2 Porto até 250k"
+          maxlength="60"
+          autocomplete="off"
+        />
+        <div class="modal-actions">
+          <button id="modalCancelBtn" class="btn-secondary">Cancelar</button>
+          <button id="modalSaveBtn">Guardar</button>
+        </div>
+      </div>
+    </div>
 
     <script type="module" src="./app.js"></script>
   </body>
