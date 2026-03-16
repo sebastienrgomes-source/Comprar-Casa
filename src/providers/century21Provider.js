@@ -1,5 +1,5 @@
 import { load } from "cheerio";
-import { fetchHtml, parsePrice, slugify, safeUrl, roomsFromTitle, dedup } from "../scraper.js";
+import { interceptJsonAndHtml, fetchHtml, parsePrice, slugify, safeUrl, roomsFromTitle, dedup } from "../scraper.js";
 
 const BASE = "https://www.century21.pt";
 
@@ -8,28 +8,79 @@ function buildUrl(type, zone, minRooms, maxPrice) {
   const url = new URL(`${BASE}/${typeSlug}/`);
   url.searchParams.set("tipo", "apartamentos");
   if (zone) url.searchParams.set("localizacao", zone);
-  if (maxPrice < Number.MAX_SAFE_INTEGER) url.searchParams.set(`preco_${typeSlug === "comprar" ? "venda" : "renda"}_max`, maxPrice);
+  if (maxPrice < Number.MAX_SAFE_INTEGER)
+    url.searchParams.set(`preco_${typeSlug === "comprar" ? "venda" : "renda"}_max`, maxPrice);
   if (minRooms > 0) url.searchParams.set("tipologia", `T${minRooms}`);
   return url.toString();
 }
 
-function scrape(html, listingType) {
+// ── JSON API response hunting ─────────────────────────────────────────────────
+function findListingsInJson(responses, listingType) {
+  for (const { data } of responses) {
+    const candidates = [
+      data?.results, data?.Results, data?.items, data?.Items,
+      data?.properties, data?.Properties, data?.listings,
+      data?.data?.results, data?.data?.items,
+    ].filter(Array.isArray);
+
+    for (const arr of candidates) {
+      if (arr.length === 0) continue;
+      const s = arr[0];
+      const hasPrice = s?.price !== undefined || s?.Price !== undefined || s?.preco !== undefined;
+      if (!hasPrice) continue;
+
+      return arr.map((item) => {
+        const priceRaw = item.price ?? item.Price ?? item.preco ?? item.Preco ?? 0;
+        const price = typeof priceRaw === "number" ? priceRaw : parsePrice(String(priceRaw));
+        const title = item.title || item.Title || item.name || item.Name || item.designation || "";
+        const rawRooms = item.rooms ?? item.Rooms ?? item.typology ?? item.tipologia ?? "";
+        const addr = item.address || item.Address || item.local || {};
+        const zone = addr.parish || addr.city || addr.locality || item.zone || "";
+        const city = addr.county || addr.district || zone;
+        const href = item.url || item.Url || item.link || "";
+        return {
+          id: `c21-${String(item.id || item.Id || href).replace(/[^a-z0-9]/gi, "-").toLowerCase() || Math.random().toString(36).slice(2)}`,
+          source: "Century 21",
+          title: String(title).trim(),
+          zone: String(zone).trim(),
+          city: String(city).trim(),
+          rooms: typeof rawRooms === "number" ? rawRooms : roomsFromTitle(String(rawRooms)),
+          price,
+          listingType,
+          url: href ? safeUrl(href, BASE) : "",
+        };
+      }).filter((l) => l.title && l.price > 0);
+    }
+  }
+  return [];
+}
+
+// ── DOM fallback ──────────────────────────────────────────────────────────────
+const CARD_SEL = [
+  "[class*='property-card']", "[class*='PropertyCard']",
+  "[class*='listing-card']", "[class*='imovel-card']",
+  "[class*='search-result']", "article",
+].join(", ");
+
+function scrapeDom(html, listingType) {
   const $ = load(html);
   const items = [];
 
-  $(["[class*='property']", "[class*='imovel']", "[class*='listing']", "article"].join(", ")).each((_, el) => {
+  $(CARD_SEL).each((_, el) => {
     const $el = $(el);
-    const titleEl = $el.find("h2 a, h3 a, [class*='title'] a").first();
-    const priceEl = $el.find("[class*='price'], [class*='preco'], .price").first();
-    const locationEl = $el.find("[class*='location'], [class*='local'], [class*='zone']").first();
+    if ($el.closest("nav, header, footer").length) return;
 
-    const title = titleEl.text().trim();
-    const price = parsePrice(priceEl.text());
+    const titleEl = $el.find("h1 a, h2 a, h3 a, [class*='title'] a").first();
+    const title = titleEl.text().trim() || $el.find("h1, h2, h3").first().text().trim();
+    if (!title || title.length < 5) return;
+
+    const price = parsePrice($el.find("[class*='price'], [class*='preco'], .price").first().text());
+    if (!price) return;
+
     const href = safeUrl(titleEl.attr("href") || $el.find("a").first().attr("href"), BASE);
-    if (!title || !price) return;
+    const locText = $el.find("[class*='location'], [class*='local'], address").first().text().trim();
+    const parts = locText.split(",").map((s) => s.trim()).filter(Boolean);
 
-    const locText = locationEl.text().trim();
-    const parts = locText.split(",").map((s) => s.trim());
     items.push({
       id: `c21-${(href || String(Math.random())).replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").toLowerCase()}`,
       source: "Century 21",
@@ -39,7 +90,7 @@ function scrape(html, listingType) {
       rooms: roomsFromTitle(title),
       price,
       listingType,
-      url: href,
+      url: href && href.includes("century21.pt") ? href : "",
     });
   });
 
@@ -57,8 +108,28 @@ export const century21Provider = {
       for (const zone of zones) {
         try {
           const url = buildUrl(type, zone, filters.minRooms, filters.maxPrice);
-          const html = await fetchHtml(url);
-          results.push(...scrape(html, type));
+
+          // Try plain fetch first (faster); fall back to Puppeteer if 403
+          let html = null;
+          try {
+            html = await fetchHtml(url, { Referer: `${BASE}/` });
+          } catch (err) {
+            if (err.message.includes("403") || err.message.includes("429")) {
+              console.log(`[Century 21] Fetch bloqueado, a usar Puppeteer...`);
+            } else {
+              throw err;
+            }
+          }
+
+          let fromDom = html ? scrapeDom(html, type) : [];
+
+          if (fromDom.length === 0) {
+            const { jsonResponses, html: puppHtml } = await interceptJsonAndHtml(url, { waitMs: 5000 });
+            const fromJson = findListingsInJson(jsonResponses, type);
+            fromDom = fromJson.length > 0 ? fromJson : scrapeDom(puppHtml, type);
+          }
+
+          results.push(...fromDom);
         } catch (err) {
           console.error(`[Century 21] Erro (${type}, ${zone || "—"}):`, err.message);
         }

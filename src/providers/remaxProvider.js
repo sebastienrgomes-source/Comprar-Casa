@@ -1,46 +1,151 @@
 import { load } from "cheerio";
-import { fetchHtml, parsePrice, slugify, safeUrl, roomsFromTitle, dedup } from "../scraper.js";
+import { interceptJsonAndHtml, parsePrice, slugify, safeUrl, roomsFromTitle, dedup } from "../scraper.js";
 
 const BASE = "https://www.remax.pt";
 
+// REMAX Portugal: Next.js SSG shell with empty results.
+// Actual listings are fetched client-side — we intercept the JSON API call.
+
 function buildUrl(type, zones) {
-  // REMAX PT URL: /pt/comprar|arrendar/imoveis/habitacao/{district}
   const typeSlug = type === "rent" ? "arrendar" : "comprar";
-  const district = zones.length > 0 ? slugify(zones[0]) : "r";
-  return `${BASE}/pt/${typeSlug}/imoveis/habitacao/${district}`;
+  // District slug in the path (e.g. /pt/comprar/imoveis/habitacao/lisboa)
+  const district = zones.length > 0 ? slugify(zones[0]) : "";
+  const path = district
+    ? `/pt/${typeSlug}/imoveis/habitacao/${district}`
+    : `/pt/${typeSlug}/imoveis/habitacao`;
+  return `${BASE}${path}`;
 }
 
-function scrape(html, listingType) {
+// ── Try to find listing data in intercepted JSON responses ───────────────────
+function findListingsInJson(responses, listingType) {
+  const items = [];
+
+  for (const { data } of responses) {
+    // Try common envelope shapes
+    const candidates = [
+      data?.results,
+      data?.items,
+      data?.listings,
+      data?.data?.results,
+      data?.data?.items,
+      data?.data?.listings,
+      data?.searchResults?.results,
+      data?.properties,
+      data?.imoveis,
+      data?.anuncios,
+    ].filter(Array.isArray);
+
+    for (const arr of candidates) {
+      if (arr.length === 0) continue;
+      const sample = arr[0];
+      // Must have something that looks like a price or rooms
+      const hasPrice =
+        sample?.price !== undefined ||
+        sample?.preco !== undefined ||
+        sample?.valor !== undefined ||
+        sample?.totalPrice !== undefined ||
+        sample?.listingPrice !== undefined;
+
+      if (!hasPrice) continue;
+
+      for (const item of arr) {
+        const priceRaw =
+          item.price ?? item.preco ?? item.valor ?? item.totalPrice ?? item.listingPrice ?? 0;
+        const price = typeof priceRaw === "number" ? priceRaw : parsePrice(String(priceRaw));
+        if (!price) continue;
+
+        const title =
+          item.title || item.titulo || item.name || item.designation || item.descricao || "";
+        const rawRooms =
+          item.rooms ?? item.quartos ?? item.typology ?? item.tipologia ?? item.roomsNumber ?? "";
+        const rooms = typeof rawRooms === "number" ? rawRooms : roomsFromTitle(String(rawRooms));
+
+        const addr = item.location || item.address || item.local || item.localizacao || {};
+        const zone =
+          item.zone || item.zona || addr.parish || addr.freguesia ||
+          addr.city || addr.cidade || addr.locality || addr.localidade || "";
+        const city =
+          item.city || item.cidade || addr.county || addr.concelho ||
+          addr.district || addr.distrito || zone;
+
+        const href =
+          item.url || item.href || item.link || item.detailUrl ||
+          (item.id ? `/pt/${listingType === "rent" ? "arrendar" : "comprar"}/imovel/${item.id}` : "");
+        const url = href ? safeUrl(href, BASE) : "";
+
+        const idRaw = item.id || item.referencia || item.code || url;
+        items.push({
+          id: `remax-${String(idRaw).replace(/[^a-z0-9]/gi, "-").toLowerCase() || Math.random().toString(36).slice(2)}`,
+          source: "REMAX",
+          title: String(title).trim(),
+          zone: String(zone).trim(),
+          city: String(city).trim(),
+          rooms,
+          price,
+          listingType,
+          url,
+        });
+      }
+
+      if (items.length > 0) return items; // found it
+    }
+  }
+
+  return items;
+}
+
+// ── Fallback: parse the fully-rendered DOM with Cheerio ─────────────────────
+const CARD_SELECTORS = [
+  "[class*='property-card']",
+  "[class*='PropertyCard']",
+  "[class*='listing-card']",
+  "[class*='ListingCard']",
+  "[class*='search-result']",
+  "[class*='property-item']",
+  "[class*='p-card']",
+  "[data-listing-id]",
+  "[data-property-id]",
+  "article",
+].join(", ");
+
+function scrapeDom(html, listingType) {
   const $ = load(html);
   const items = [];
 
-  $(["[class*='property-card']", "[class*='listing-card']", ".listing-item", ".property-item"].join(", ")).each(
-    (_, el) => {
-      const $el = $(el);
-      const titleEl = $el.find("h2 a, h3 a, [class*='title'] a").first();
-      const priceEl = $el.find("[class*='price'], .valor").first();
-      const locationEl = $el.find("[class*='location'], [class*='zone']").first();
+  $(CARD_SELECTORS).each((_, el) => {
+    const $el = $(el);
+    // Skip nav, header, footer elements
+    if ($el.closest("nav, header, footer, script").length) return;
 
-      const title = titleEl.text().trim();
-      const price = parsePrice(priceEl.text());
-      const href = safeUrl(titleEl.attr("href") || $el.find("a").first().attr("href"), BASE);
-      if (!title || !price) return;
+    const titleEl = $el.find("h1 a, h2 a, h3 a, h4 a, [class*='title'] a, [class*='Title'] a").first();
+    const title = titleEl.text().trim() || $el.find("h1, h2, h3, h4").first().text().trim();
+    if (!title || title.length < 5) return;
 
-      const locText = locationEl.text().trim();
-      const parts = locText.split(",").map((s) => s.trim());
-      items.push({
-        id: `remax-${(href || String(Math.random())).replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").toLowerCase()}`,
-        source: "REMAX",
-        title,
-        zone: parts[0] || "",
-        city: parts[1] || parts[0] || "",
-        rooms: roomsFromTitle(title),
-        price,
-        listingType,
-        url: href,
-      });
-    }
-  );
+    const priceEl = $el.find("[class*='price'], [class*='Price'], [class*='preco'], .valor, [data-price]").first();
+    const price = parsePrice(priceEl.text());
+    if (!price) return;
+
+    const href = safeUrl(
+      titleEl.attr("href") || $el.find("a[href]").first().attr("href"),
+      BASE
+    );
+
+    const locEl = $el.find("[class*='location'], [class*='Location'], [class*='local'], [class*='zone'], address").first();
+    const locText = locEl.text().trim();
+    const parts = locText.split(",").map((s) => s.trim()).filter(Boolean);
+
+    items.push({
+      id: `remax-${(href || String(Math.random())).replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").toLowerCase()}`,
+      source: "REMAX",
+      title,
+      zone: parts[0] || "",
+      city: parts[1] || parts[0] || "",
+      rooms: roomsFromTitle(title),
+      price,
+      listingType,
+      url: href && href.includes("remax.pt") ? href : "",
+    });
+  });
 
   return items;
 }
@@ -55,10 +160,28 @@ export const remaxProvider = {
     for (const type of types) {
       try {
         const url = buildUrl(type, zones);
-        const html = await fetchHtml(url);
-        results.push(...scrape(html, type));
+        console.log(`[REMAX] A carregar (Puppeteer): ${url}`);
+
+        const { jsonResponses, html } = await interceptJsonAndHtml(url, { waitMs: 6000 });
+
+        // Strategy 1: intercepted JSON API responses
+        const fromJson = findListingsInJson(jsonResponses, type);
+        if (fromJson.length > 0) {
+          console.log(`[REMAX] ${fromJson.length} resultados via API JSON`);
+          results.push(...fromJson);
+          continue;
+        }
+
+        // Strategy 2: parse the fully-rendered DOM
+        const fromDom = scrapeDom(html, type);
+        if (fromDom.length > 0) {
+          console.log(`[REMAX] ${fromDom.length} resultados via DOM`);
+          results.push(...fromDom);
+        } else {
+          console.warn(`[REMAX] Sem resultados para tipo=${type}, zonas=${zones.join(",")}`);
+        }
       } catch (err) {
-        console.error(`[REMAX] Erro (${type}):`, err.message);
+        console.error(`[REMAX] Erro:`, err.message);
       }
     }
 
