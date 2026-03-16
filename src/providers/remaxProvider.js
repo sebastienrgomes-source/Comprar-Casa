@@ -17,65 +17,63 @@ function buildUrl(type, zones) {
 }
 
 // ── Try to find listing data in intercepted JSON responses ───────────────────
+// REMAX API: PaginatedMultiMatchSearch returns { results: [...], total, ... }
+// Item fields: listingPrice, listingTitle (ref#), numberOfBedrooms,
+//              regionName1 (district), regionName2 (municipality), regionName3 (parish),
+//              descriptions[{languageCode:"PT", description:"<html>"}], id
 function findListingsInJson(responses, listingType) {
   const items = [];
 
   for (const { data } of responses) {
-    // Try common envelope shapes
     const candidates = [
       data?.results,
       data?.items,
       data?.listings,
       data?.data?.results,
       data?.data?.items,
-      data?.data?.listings,
       data?.searchResults?.results,
       data?.properties,
       data?.imoveis,
-      data?.anuncios,
     ].filter(Array.isArray);
 
     for (const arr of candidates) {
       if (arr.length === 0) continue;
       const sample = arr[0];
-      // Must have something that looks like a price or rooms
       const hasPrice =
+        sample?.listingPrice !== undefined ||
         sample?.price !== undefined ||
         sample?.preco !== undefined ||
         sample?.valor !== undefined ||
-        sample?.totalPrice !== undefined ||
-        sample?.listingPrice !== undefined;
+        sample?.totalPrice !== undefined;
 
       if (!hasPrice) continue;
 
       for (const item of arr) {
         const priceRaw =
-          item.price ?? item.preco ?? item.valor ?? item.totalPrice ?? item.listingPrice ?? 0;
+          item.listingPrice ?? item.price ?? item.preco ?? item.valor ?? item.totalPrice ?? 0;
         const price = typeof priceRaw === "number" ? priceRaw : parsePrice(String(priceRaw));
         if (!price) continue;
 
+        // Title: first meaningful line from PT description (strip HTML), or fallback
+        const ptDesc = item.descriptions?.find((d) => d.languageCode === "PT");
+        const descText = ptDesc?.description
+          ? ptDesc.description.replace(/<[^>]+>/g, "").split(/\n/).map((l) => l.trim()).find((l) => l.length > 4) || ""
+          : "";
+        const rooms = item.numberOfBedrooms ?? 0;
         const title =
-          item.title || item.titulo || item.name || item.designation || item.descricao || "";
-        const rawRooms =
-          item.rooms ?? item.quartos ?? item.typology ?? item.tipologia ?? item.roomsNumber ?? "";
-        const rooms = typeof rawRooms === "number" ? rawRooms : roomsFromTitle(String(rawRooms));
+          descText ||
+          item.title || item.titulo || item.name || item.designation ||
+          `Apartamento T${rooms} em ${item.regionName2 || item.regionName1 || "Portugal"}`;
 
-        const addr = item.location || item.address || item.local || item.localizacao || {};
-        const zone =
-          item.zone || item.zona || addr.parish || addr.freguesia ||
-          addr.city || addr.cidade || addr.locality || addr.localidade || "";
-        const city =
-          item.city || item.cidade || addr.county || addr.concelho ||
-          addr.district || addr.distrito || zone;
+        const zone = item.regionName3 || item.regionName2 || "";
+        const city = item.regionName2 || item.regionName1 || "";
 
-        const href =
-          item.url || item.href || item.link || item.detailUrl ||
-          (item.id ? `/pt/${listingType === "rent" ? "arrendar" : "comprar"}/imovel/${item.id}` : "");
-        const url = href ? safeUrl(href, BASE) : "";
+        // URL: listingTitle holds the reference slug (e.g. "124151197-145")
+        const ref = item.listingTitle || String(item.id || "");
+        const url = ref ? `${BASE}/pt/imovel/${ref}` : "";
 
-        const idRaw = item.id || item.referencia || item.code || url;
         items.push({
-          id: `remax-${String(idRaw).replace(/[^a-z0-9]/gi, "-").toLowerCase() || Math.random().toString(36).slice(2)}`,
+          id: `remax-${String(item.id || ref).replace(/[^a-z0-9]/gi, "-").toLowerCase() || Math.random().toString(36).slice(2)}`,
           source: "REMAX",
           title: String(title).trim(),
           zone: String(zone).trim(),
@@ -87,7 +85,7 @@ function findListingsInJson(responses, listingType) {
         });
       }
 
-      if (items.length > 0) return items; // found it
+      if (items.length > 0) return items;
     }
   }
 

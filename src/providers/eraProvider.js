@@ -17,69 +17,66 @@ function buildUrl(type, zone, minRooms, maxPrice) {
 }
 
 // ── Try to find listing data in intercepted JSON responses ───────────────────
+// ERA API: /API/ServicesModule/Property/Search -> { PropertyList, TotalRecords, ... }
+// Item fields: SellPrice.Value / RentPrice.Value, Title, Rooms (string),
+//              Localization ("Parish, Municipality"), DetailUrl, Id, Reference
 function findListingsInJson(responses, listingType) {
   const items = [];
 
   for (const { data } of responses) {
     const candidates = [
+      data?.PropertyList,
       data?.Results,
       data?.results,
       data?.Items,
       data?.items,
       data?.Properties,
       data?.properties,
-      data?.Imoveis,
-      data?.imoveis,
+      data?.data?.PropertyList,
       data?.data?.results,
-      data?.data?.items,
     ].filter(Array.isArray);
 
     for (const arr of candidates) {
       if (arr.length === 0) continue;
       const sample = arr[0];
-      // Must look like a property listing
       const hasPrice =
+        sample?.SellPrice !== undefined ||
+        sample?.RentPrice !== undefined ||
         sample?.Price !== undefined ||
         sample?.price !== undefined ||
-        sample?.Preco !== undefined ||
-        sample?.preco !== undefined ||
-        sample?.Valor !== undefined;
+        sample?.Preco !== undefined;
 
       if (!hasPrice) continue;
 
       for (const item of arr) {
-        const priceRaw =
-          item.Price ?? item.price ?? item.Preco ?? item.preco ?? item.Valor ?? 0;
-        const price = typeof priceRaw === "number" ? priceRaw : parsePrice(String(priceRaw));
+        // ERA uses SellPrice.Value / RentPrice.Value (strings like "257.000 €")
+        const priceObj = listingType === "rent" ? item.RentPrice : item.SellPrice;
+        const priceStr = priceObj?.Value || item.Price || item.price || item.Preco || "";
+        const price = typeof priceStr === "number" ? priceStr : parsePrice(String(priceStr));
         if (!price) continue;
 
-        const title =
-          item.Title || item.title || item.Titulo || item.titulo ||
-          item.Designation || item.Name || item.name || "";
-        const rawRooms =
-          item.Rooms ?? item.rooms ?? item.Quartos ?? item.quartos ??
-          item.Typology ?? item.tipologia ?? "";
-        const rooms = typeof rawRooms === "number" ? rawRooms : roomsFromTitle(String(rawRooms));
+        const title = item.Title || item.title || item.Titulo || item.Name || item.name || "";
+        if (!title) continue;
 
-        const addr = item.Address || item.address || item.Local || item.local || {};
-        const zone =
-          item.Parish || item.Freguesia || addr.Parish || addr.Freguesia ||
-          addr.City || addr.Locality || item.Zone || item.Zona || "";
-        const city =
-          item.County || item.Concelho || addr.County || addr.Concelho ||
-          addr.District || addr.Distrito || zone;
+        const rawRooms = item.Rooms ?? item.rooms ?? item.Quartos ?? item.quartos ?? "";
+        const rooms = typeof rawRooms === "number" ? rawRooms : parseInt(rawRooms, 10) || roomsFromTitle(String(rawRooms));
 
-        const href =
-          item.Url || item.url || item.Link || item.link || item.DetailUrl ||
-          (item.Id ? `/comprar/apartamento/${item.Id}` : "");
+        // Localization = "Parish, Municipality"
+        const locText = item.Localization || item.localization || "";
+        const parts = locText.split(",").map((s) => s.trim()).filter(Boolean);
+        const zone = parts[0] || "";
+        const city = parts[1] || parts[0] || "";
+
+        const href = item.DetailUrl || item.Url || item.url || item.Link ||
+          (item.Id ? `/imovel/${item.Id}` : "");
         const url = href ? safeUrl(href, BASE) : "";
 
         items.push({
-          id: `era-${String(item.Id || item.id || item.Code || url).replace(/[^a-z0-9]/gi, "-").toLowerCase() || Math.random().toString(36).slice(2)}`,
+          id: `era-${String(item.Id || item.Reference || url).replace(/[^a-z0-9]/gi, "-").toLowerCase() || Math.random().toString(36).slice(2)}`,
           source: "ERA",
           title: String(title).trim(),
-          zone: String(zone).trim(),
-          city: String(city).trim(),
+          zone,
+          city,
           rooms,
           price,
           listingType,
