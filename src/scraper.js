@@ -54,6 +54,27 @@ export function extractNextData(html) {
   try { return JSON.parse(match[1]); } catch { return null; }
 }
 
+// ── Puppeteer concurrency semaphore (max 3 tabs at once) ──────────────────────
+let _puppeteerSlots = 3;
+const _puppeteerQueue = [];
+
+function acquirePuppeteer() {
+  if (_puppeteerSlots > 0) {
+    _puppeteerSlots--;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => _puppeteerQueue.push(resolve));
+}
+
+function releasePuppeteer() {
+  if (_puppeteerQueue.length > 0) {
+    const next = _puppeteerQueue.shift();
+    next();
+  } else {
+    _puppeteerSlots++;
+  }
+}
+
 // ── Puppeteer browser singleton ───────────────────────────────────────────────
 let _browser = null;
 
@@ -85,20 +106,22 @@ export async function getBrowser() {
 
 // ── Puppeteer: load page and return rendered HTML ─────────────────────────────
 export async function fetchWithPuppeteer(url, { waitForSelector, waitMs = 2500 } = {}) {
+  await acquirePuppeteer();
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
     await page.setUserAgent(randomUa());
     await page.setViewport({ width: 1280, height: 900 });
     await page.setExtraHTTPHeaders({ "Accept-Language": "pt-PT,pt;q=0.9,en;q=0.8" });
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 45000 });
     if (waitForSelector) {
       try { await page.waitForSelector(waitForSelector, { timeout: 8000 }); } catch {}
     }
     if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
     return await page.content();
   } finally {
-    await page.close();
+    await page.close().catch(() => {});
+    releasePuppeteer();
   }
 }
 
@@ -106,6 +129,7 @@ export async function fetchWithPuppeteer(url, { waitForSelector, waitMs = 2500 }
 const JSON_SKIP = ["analytics", "google", "gtm", "criteo", "facebook", "doubleclick", "twitter", ".png", ".jpg", ".css", ".woff", ".svg"];
 
 export async function interceptJsonAndHtml(url, { waitMs = 5000 } = {}) {
+  await acquirePuppeteer();
   const browser = await getBrowser();
   const page = await browser.newPage();
   const jsonResponses = [];
@@ -122,12 +146,13 @@ export async function interceptJsonAndHtml(url, { waitMs = 5000 } = {}) {
     await page.setUserAgent(randomUa());
     await page.setViewport({ width: 1280, height: 900 });
     await page.setExtraHTTPHeaders({ "Accept-Language": "pt-PT,pt;q=0.9,en;q=0.8" });
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 45000 });
     await new Promise((r) => setTimeout(r, waitMs));
     const html = await page.content();
     return { jsonResponses, html };
   } finally {
-    await page.close();
+    await page.close().catch(() => {});
+    releasePuppeteer();
   }
 }
 

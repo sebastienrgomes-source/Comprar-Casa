@@ -72,9 +72,11 @@ function filterListings(listings, filters) {
     .filter((l) => filters.listingType === "both" || l.listingType === filters.listingType)
     .filter((l) => {
       if (normalizedZones.length === 0) return true;
+      // If listing has no location data, trust that the provider already filtered by zone
+      if (!l.zone && !l.city) return true;
       const zone = normalizeZone(l.zone);
       const city = normalizeZone(l.city);
-      return normalizedZones.some((z) => zone.includes(z) || city.includes(z));
+      return normalizedZones.some((z) => zone.includes(z) || city.includes(z) || z.includes(zone) || z.includes(city));
     })
     .sort((a, b) => a.price - b.price);
 }

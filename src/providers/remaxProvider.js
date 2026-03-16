@@ -66,7 +66,8 @@ function findListingsInJson(responses, listingType) {
           `Apartamento T${rooms} em ${item.regionName2 || item.regionName1 || "Portugal"}`;
 
         const zone = item.regionName3 || item.regionName2 || "";
-        const city = item.regionName2 || item.regionName1 || "";
+        // Use regionName1 (district, e.g. "Lisboa") as city so the zone filter passes
+        const city = item.regionName1 || item.regionName2 || "";
 
         // URL: listingTitle holds the reference slug (e.g. "124151197-145")
         const ref = item.listingTitle || String(item.id || "");

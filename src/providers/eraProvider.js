@@ -2,10 +2,42 @@ import { load } from "cheerio";
 import { interceptJsonAndHtml, parsePrice, slugify, safeUrl, roomsFromTitle, dedup } from "../scraper.js";
 
 const BASE = "https://www.era.pt";
+const SEARCH_API = `${BASE}/API/ServicesModule/Property/Search`;
 
-// ERA Portugal: React SPA over DotNetNuke (DNN) framework.
-// #rootContainer-410 renders listings via window.renderSearchList() after JS loads.
-// We use Puppeteer + JSON interception to get the data.
+// ERA Portugal district IDs (standard Portuguese administrative codes)
+const DISTRICT_IDS = {
+  aveiro: "01", beja: "02", braga: "03", braganca: "04", "castelo branco": "05",
+  coimbra: "06", evora: "07", faro: "08", guarda: "09", leiria: "10",
+  lisboa: "11", portalegre: "12", porto: "13", santarem: "14", setubal: "15",
+  "viana do castelo": "16", "vila real": "17", viseu: "18",
+};
+
+function zoneToDistrictId(zone) {
+  const normalized = String(zone || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  return DISTRICT_IDS[normalized] || null;
+}
+
+// Build POST body for ERA's Property/Search API
+function buildSearchBody(type, zone, minRooms, maxPrice) {
+  const body = {
+    page: 1,
+    propertiesTypeId: [1],   // 1 = Apartamento
+    onlyDevelopments: false,
+    order: 3,
+    isResidential: true,
+    nonResidential: false,
+    businessTypeId: type === "rent" ? 2 : 1,   // 1=Comprar, 2=Arrendar
+  };
+  const districtId = zoneToDistrictId(zone);
+  if (districtId) body.districtId = districtId;
+  if (maxPrice < Number.MAX_SAFE_INTEGER) body.maxPrice = maxPrice;
+  if (minRooms > 0) body.minTypology = `T${minRooms}`;
+  return body;
+}
 
 function buildUrl(type, zone, minRooms, maxPrice) {
   const typeSlug = type === "rent" ? "arrendar" : "comprar";
@@ -163,15 +195,46 @@ export const eraProvider = {
     for (const type of types) {
       for (const zone of zones) {
         try {
-          const url = buildUrl(type, zone, filters.minRooms, filters.maxPrice);
-          console.log(`[ERA] A carregar (Puppeteer): ${url}`);
+          // Strategy 1: direct POST to ERA's API with location filter (districtId)
+          const body = buildSearchBody(type, zone, filters.minRooms, filters.maxPrice);
+          console.log(`[ERA] POST directo à API (tipo=${type}, district=${body.districtId || "todos"})`);
 
-          // Wait extra time for DNN React module to render (#rootContainer-410)
+          let found = [];
+          try {
+            const res = await fetch(SEARCH_API, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Referer": `${BASE}/`,
+                "Origin": BASE,
+              },
+              body: JSON.stringify(body),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              const fakeResponses = [{ url: SEARCH_API, data }];
+              found = findListingsInJson(fakeResponses, type);
+              if (found.length > 0) {
+                console.log(`[ERA] ${found.length} resultados via POST directo`);
+              }
+            }
+          } catch (fetchErr) {
+            console.log(`[ERA] POST directo falhou: ${fetchErr.message}, a tentar Puppeteer...`);
+          }
+
+          if (found.length > 0) {
+            results.push(...found);
+            continue;
+          }
+
+          // Strategy 2: Puppeteer fallback (slower, less filtered)
+          const url = buildUrl(type, zone, filters.minRooms, filters.maxPrice);
+          console.log(`[ERA] A usar Puppeteer: ${url}`);
           const { jsonResponses, html } = await interceptJsonAndHtml(url, { waitMs: 7000 });
 
           const fromJson = findListingsInJson(jsonResponses, type);
           if (fromJson.length > 0) {
-            console.log(`[ERA] ${fromJson.length} resultados via API JSON`);
+            console.log(`[ERA] ${fromJson.length} resultados via Puppeteer JSON`);
             results.push(...fromJson);
             continue;
           }

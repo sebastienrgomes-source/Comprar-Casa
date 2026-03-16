@@ -51,12 +51,18 @@ function extractFromRsc(html, listingType) {
 }
 
 // ── JSON API interception ─────────────────────────────────────────────────────
+// KW API: /api/portal/listProperties -> direct array (15 items per page)
+// Item fields: price (number), designation (title), rooms (number), typology (string),
+//              region1 (district/city), region2 (municipality), region3 (parish),
+//              idProperty, reference ("KWPT-XXXXXX"), url (often null)
 function findListingsInJson(responses, listingType) {
   for (const { data } of responses) {
+    // KW returns a direct array from listProperties; also check wrapped shapes
     const candidates = [
+      Array.isArray(data) ? data : null,
       data?.dataProperty, data?.results, data?.items,
       data?.properties, data?.listings,
-      data?.data?.results, data?.data?.items, data?.data?.dataProperty,
+      data?.data?.results, data?.data?.items,
     ].filter(Array.isArray);
 
     for (const arr of candidates) {
@@ -70,23 +76,32 @@ function findListingsInJson(responses, listingType) {
       return arr.map((item) => {
         const priceRaw = item.price ?? item.priceProperty ?? item.Price ?? item.preco ?? 0;
         const price = typeof priceRaw === "number" ? priceRaw : parsePrice(String(priceRaw));
-        const title = item.title || item.titleProperty || item.typeProperty || item.name || "";
-        const rawRooms = item.rooms ?? item.quartos ?? "";
-        const addr = item.address || item.addressProperty || item.local || "";
-        const parts = String(addr).split(",").map((s) => s.trim()).filter(Boolean);
-        const href = item.url || item.href || (item.id ? `/imovel/${item.id}` : "");
+        if (!price) return null;
+
+        const title = item.designation || item.title || item.titleProperty || item.name || "";
+        if (!title) return null;
+
+        const rooms = item.rooms ?? item.quartos ?? 0;
+        const zone = item.region3 || item.region2 || "";
+        const city = item.region1 || item.region2 || "";
+
+        // URL: use reference slug if direct url is null
+        const href = item.url || (item.reference ? `/imoveis/${item.reference}` : "")
+          || (item.idProperty ? `/imoveis/${item.idProperty}` : "");
+        const url = href ? safeUrl(href, BASE) : "";
+
         return {
-          id: `kw-${String(item.id || href).replace(/[^a-z0-9]/gi, "-").toLowerCase() || Math.random().toString(36).slice(2)}`,
+          id: `kw-${String(item.idProperty || item.reference || url).replace(/[^a-z0-9]/gi, "-").toLowerCase() || Math.random().toString(36).slice(2)}`,
           source: "KW Portugal",
           title: String(title).trim(),
-          zone: parts[0] || "",
-          city: parts[1] || parts[0] || "",
-          rooms: typeof rawRooms === "number" ? rawRooms : roomsFromTitle(String(rawRooms)),
+          zone: String(zone).trim(),
+          city: String(city).trim(),
+          rooms: typeof rooms === "number" ? rooms : roomsFromTitle(String(rooms)),
           price,
           listingType,
-          url: href ? safeUrl(href, BASE) : "",
+          url,
         };
-      }).filter((l) => l.title && l.price > 0);
+      }).filter(Boolean).filter((l) => l.title && l.price > 0);
     }
   }
   return [];

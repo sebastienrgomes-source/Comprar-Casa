@@ -15,42 +15,48 @@ function buildUrl(type, zone, minRooms, maxPrice) {
 }
 
 // ── JSON API response hunting ─────────────────────────────────────────────────
+// Century 21 API: /api/properties -> { data: [...], total }
+// Item fields: price (number), title (object {pt,en,es,fr}), link (URL),
+//              number_of_rooms, lat, lng, address (street only, no city)
 function findListingsInJson(responses, listingType) {
   for (const { data } of responses) {
-    const candidates = [
-      data?.results, data?.Results, data?.items, data?.Items,
-      data?.properties, data?.Properties, data?.listings,
-      data?.data?.results, data?.data?.items,
-    ].filter(Array.isArray);
+    // C21 wraps results in { data: [...], total }; also try direct array
+    const arr = Array.isArray(data?.data) ? data.data
+      : Array.isArray(data) ? data
+      : null;
+    if (!arr || arr.length === 0) continue;
 
-    for (const arr of candidates) {
-      if (arr.length === 0) continue;
-      const s = arr[0];
-      const hasPrice = s?.price !== undefined || s?.Price !== undefined || s?.preco !== undefined;
-      if (!hasPrice) continue;
+    const s = arr[0];
+    if (s?.price === undefined) continue;
 
-      return arr.map((item) => {
-        const priceRaw = item.price ?? item.Price ?? item.preco ?? item.Preco ?? 0;
-        const price = typeof priceRaw === "number" ? priceRaw : parsePrice(String(priceRaw));
-        const title = item.title || item.Title || item.name || item.Name || item.designation || "";
-        const rawRooms = item.rooms ?? item.Rooms ?? item.typology ?? item.tipologia ?? "";
-        const addr = item.address || item.Address || item.local || {};
-        const zone = addr.parish || addr.city || addr.locality || item.zone || "";
-        const city = addr.county || addr.district || zone;
-        const href = item.url || item.Url || item.link || "";
-        return {
-          id: `c21-${String(item.id || item.Id || href).replace(/[^a-z0-9]/gi, "-").toLowerCase() || Math.random().toString(36).slice(2)}`,
-          source: "Century 21",
-          title: String(title).trim(),
-          zone: String(zone).trim(),
-          city: String(city).trim(),
-          rooms: typeof rawRooms === "number" ? rawRooms : roomsFromTitle(String(rawRooms)),
-          price,
-          listingType,
-          url: href ? safeUrl(href, BASE) : "",
-        };
-      }).filter((l) => l.title && l.price > 0);
-    }
+    return arr.map((item) => {
+      const price = typeof item.price === "number" ? item.price : parsePrice(String(item.price || 0));
+      if (!price) return null;
+
+      // Title is a multilingual object {pt, en, es, fr}
+      const titleObj = item.title && typeof item.title === "object" ? item.title : {};
+      const title = titleObj.pt || titleObj.en || titleObj.es || titleObj.fr
+        || (typeof item.title === "string" ? item.title : "")
+        || item.name || item.designation || "";
+      if (!title) return null;
+
+      const rooms = item.number_of_rooms ?? item.rooms ?? 0;
+      const url = item.link ? safeUrl(item.link, BASE) : "";
+
+      // C21 API doesn't return city/municipality — zone/city left empty;
+      // filterListings will pass these through (no zone data = trust the API filter)
+      return {
+        id: `c21-${String(item.id || url).replace(/[^a-z0-9]/gi, "-").toLowerCase() || Math.random().toString(36).slice(2)}`,
+        source: "Century 21",
+        title: String(title).trim(),
+        zone: "",
+        city: "",
+        rooms,
+        price,
+        listingType,
+        url,
+      };
+    }).filter(Boolean).filter((l) => l.title && l.price > 0);
   }
   return [];
 }
